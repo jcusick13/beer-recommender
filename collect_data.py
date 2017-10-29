@@ -9,6 +9,7 @@ import pandas as pd
 from pandas.io.json import json_normalize
 import requests
 from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 
 # Create and save table of beer styles
@@ -66,7 +67,7 @@ def tf_idf(df):
 
     df: Data frame with a 'description' column used for the tf-idf
     """
-    tf = TfidfVectorizer()
+    tf = TfidfVectorizer(stop_words='english', ngram_range=(1, 2))
     tf_idf_mat = tf.fit_transform(df['description'])
 
     return [tf_idf_mat, tf.get_feature_names()]
@@ -80,13 +81,40 @@ def high_scoring_features(row, features, n=5):
     features: list of features with same index mapping used in tf-idf
     """
     # Get indexes of top scoring features
-    top_idx = np.argsort(row)[::-1][:n]
+    top_idx = np.argsort(-row)[:n]
 
     # Create data frame of most important words and tf-idf score
     top_feats = [(features[i], row[i]) for i in top_idx]
     df = pd.DataFrame(top_feats)
     df.columns = ['feature', 'tfidf_score']
     return df
+
+
+def similar_documents(doc, tfidf_mat, orig_df, n=3):
+    """Computes the cosine similarity between doc and each entry
+    in the tfidf matrix. Returns the top n results.
+
+    doc: array of tf-idf scores for a single document
+    tfidf_mat: sparse matrix of tfidf scores for corpus of documents
+    orig_df: original dataframe used to build tfidf_mat
+    n: number of top matching results to return
+    """
+    cos_res = cosine_similarity(doc, tfidf_mat)
+
+    # Sort and select top n results; ignore the highest result. It will
+    # always be the document, doc, itself, with a score of 1 since they
+    # are identical.
+    top_idx = np.argsort(-cos_res)[0][:n]  # TODO: reset to n+1 after test
+
+    # Sanity check results
+    for i in top_idx:
+        print("\nIndex %i Description:" % i)
+        print(pale['description'][i])
+        d = m[0][i,:].toarray()[0]
+        print("High Scoring Features:")
+        print(high_scoring_features(d, feature_list))
+
+    return orig_df.iloc[top_idx, :]
 
 
 if __name__ == '__main__':
@@ -97,7 +125,7 @@ if __name__ == '__main__':
     base = 'http://api.brewerydb.com/v2/'
 
     # Read/save first page of data
-    pale_ale(api_key)
+    # pale_ale(api_key)
 
     # Read data frame, create tf-idf matrix
     pale = pd.read_csv('pale.txt', sep='|')
@@ -106,4 +134,9 @@ if __name__ == '__main__':
     feature_list = m[1]
 
     # Check most important features in first document
-    top_features = high_scoring_features(document, feature_list)
+    # top_features = high_scoring_features(document, feature_list)
+
+    # Find similar documents
+    doc_reshape = m[0][0,:].toarray()
+    most_similar = similar_documents(doc_reshape, m[0], pale)
+
