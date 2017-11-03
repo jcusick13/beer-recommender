@@ -30,10 +30,15 @@ def test_glassware():
     df.to_csv('test.txt', sep='|', index=False, encoding='utf-8')
 
 
-def pale_ale(api_key):
-    """Create table of American pale ales."""
-    r = requests.get(base + 'beers/?styleId=25&withBreweries=Y&key=%s' %
-                     api_key).json()
+def download_style_data(api_key, style_id, outfile):
+    """Creates table from first returned page for a given style of beer.
+
+    api_key (str): Key for api access
+    style_id (int): Added to API request for a specific style of beer
+    outfile (str): Name of output txt to write data to
+    """
+    r = requests.get(base + 'beers/?styleId=%s&withBreweries=Y&key=%s' %
+                     (style_id, api_key)).json()
     df = pd.DataFrame.from_dict(json_normalize(r['data']), orient='columns')
 
     # Clean up characters in order to output as csv
@@ -58,7 +63,7 @@ def pale_ale(api_key):
     df = df[keep_cols]
 
     # Write to output
-    df.to_csv('pale.txt', sep='|', index=False, encoding='utf-8')
+    df.to_csv(outfile, sep='|', index=False, encoding='utf-8')
 
 
 def tf_idf(df):
@@ -90,29 +95,30 @@ def high_scoring_features(row, features, n=5):
     return df
 
 
-def similar_documents(doc, tfidf_mat, orig_df, n=3):
+def similar_documents(doc, tfidf_mat, orig_df, feat_list, n=3):
     """Computes the cosine similarity between doc and each entry
     in the tfidf matrix. Returns the top n results.
 
     doc: array of tf-idf scores for a single document
-    tfidf_mat: sparse matrix of tfidf scores for corpus of documents
+    tfidf_mat: sparse matrix of tf-idf scores for corpus of documents
     orig_df: original dataframe used to build tfidf_mat
+    feat_list: list of all features (words) in document corpus
     n: number of top matching results to return
     """
     cos_res = cosine_similarity(doc, tfidf_mat)
 
     # Sort and select top n results; ignore the highest result. It will
-    # always be the document, doc, itself, with a score of 1 since they
-    # are identical.
-    top_idx = np.argsort(-cos_res)[0][:n]  # TODO: reset to n+1 after test
+    # always be the document (doc) itself, with a score of 1 since it is
+    # identical to itself.
+    top_idx = np.argsort(-cos_res)[0][1:n+1]
 
     # Sanity check results
     for i in top_idx:
-        print("\nIndex %i Description:" % i)
-        print(pale['description'][i])
+        print('\nIndex %i Description:' % i)
+        print(orig_df['description'][i])
         d = m[0][i,:].toarray()[0]
-        print("High Scoring Features:")
-        print(high_scoring_features(d, feature_list))
+        print('High Scoring Features:')
+        print(high_scoring_features(d, feat_list))
 
     return orig_df.iloc[top_idx, :]
 
@@ -125,18 +131,27 @@ if __name__ == '__main__':
     base = 'http://api.brewerydb.com/v2/'
 
     # Read/save first page of data
-    # pale_ale(api_key)
+    # download_style_data(api_key, 18, 'porter.txt')
 
-    # Read data frame, create tf-idf matrix
+    # Download sample pale ale and porter data/combine
     pale = pd.read_csv('pale.txt', sep='|')
-    m = tf_idf(pale)
-    document = m[0][0,:].toarray()[0]
+    porter = pd.read_csv('porter.txt', sep='|')
+    beers = porter.append(pale, ignore_index=True)
+
+    # Create tf-idf matrix
+    m = tf_idf(beers)
     feature_list = m[1]
 
     # Check most important features in first document
+    # document = m[0][0,:].toarray()[0]
     # top_features = high_scoring_features(document, feature_list)
 
     # Find similar documents
     doc_reshape = m[0][0,:].toarray()
-    most_similar = similar_documents(doc_reshape, m[0], pale)
+    most_similar = similar_documents(doc_reshape, m[0], beers, feature_list)
+
+    # TODO: Create function to find ngrams most similar bewteen two documents
+    # TODO: Expand data collection to all pages of beers per style
+    # TODO: Combine text filtering with numerical attributes
+    # TODO: Break into seperate files for collection/analysis
 
